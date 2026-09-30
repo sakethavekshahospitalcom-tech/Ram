@@ -2,25 +2,12 @@
 <html>
 <head>
     <title>My First Flask Page</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f0f4f8;
-            text-align: center;
-            padding-top: 80px;
-        }
-        h1 {
-            color: #2b6cb0;
-        }
-        p {
-            color: #4a5568;
-            font-size: 18px;
-        }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <h1>Welcome to my Flask app! jai ntr</h1>
-    <p>This page is made using an HTML template jaibabu.</p>
+    <h1>Welcome to my Flask app!</h1>
+    <p>This page is made using an HTML template.</p>
     <a href="/about">Go to About page</a>
+    <p><a href="/form">Go to Form page</a></p>
 </body>
 </html>
