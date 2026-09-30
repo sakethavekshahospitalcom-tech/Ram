@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Name Form</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f4f8;
+            text-align: center;
+            padding-top: 80px;
+        }
+        h1 {
+            color: #2b6cb0;
+        }
+        input {
+            padding: 10px;
+            font-size: 16px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #2b6cb0;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>What is your name?</h1>
+    <form method="POST" action="/form">
+        <input type="text" name="username" placeholder="Type your name" required>
+        <button type="submit">Submit</button>
+    </form>
+
+    {% if name %}
+        <h2>Hello, {{ name }}!</h2>
+    {% endif %}
+
+    <p><a href="/">Back to Home</a></p>
+</body>
+</html>
