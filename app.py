@@ -1,6 +1,20 @@
+import sqlite3
 from flask import Flask, render_template, request
 
 app = Flask(__name__)
+
+def get_db():
+    conn = sqlite3.connect("data.db")
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_db()
+    conn.execute("CREATE TABLE IF NOT EXISTS names (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL)")
+    conn.commit()
+    conn.close()
+
+init_db()
 
 @app.route("/")
 def home():
@@ -15,7 +29,18 @@ def form():
     name = None
     if request.method == "POST":
         name = request.form["username"]
+        conn = get_db()
+        conn.execute("INSERT INTO names (name) VALUES (?)", (name,))
+        conn.commit()
+        conn.close()
     return render_template("form.html", name=name)
+
+@app.route("/names")
+def names():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM names ORDER BY id DESC").fetchall()
+    conn.close()
+    return render_template("names.html", rows=rows)
 
 if __name__ == "__main__":
     app.run(debug=True)
