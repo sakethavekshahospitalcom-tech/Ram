@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Live Chat</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body>
+    <h1>Live Chat</h1>
+
+    <div id="messages" style="max-width:500px; margin:auto; text-align:left;"></div>
+
+    <br>
+    <input type="text" id="username" placeholder="Your name">
+    <input type="text" id="message" placeholder="Type a message">
+    <button onclick="sendMessage()">Send</button>
+
+    <p><a href="/">Back to Home</a></p>
+
+    <script>
+        var socket = io();
+
+        socket.on("new_message", function (data) {
+            var box = document.getElementById("messages");
+            var p = document.createElement("p");
+            p.textContent = data.user + ": " + data.text;
+            box.appendChild(p);
+        });
+
+        function sendMessage() {
+            var user = document.getElementById("username").value;
+            var text = document.getElementById("message").value;
+            if (user && text) {
+                socket.emit("send_message", { user: user, text: text });
+                document.getElementById("message").value = "";
+            }
+        }
+    </script>
+</body>
+</html>

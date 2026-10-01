@@ -1,7 +1,9 @@
 import sqlite3
 from flask import Flask, render_template, request
+from flask_socketio import SocketIO, emit
 
 app = Flask(__name__)
+socketio = SocketIO(app)
 
 def get_db():
     conn = sqlite3.connect("data.db")
@@ -42,5 +44,13 @@ def names():
     conn.close()
     return render_template("names.html", rows=rows)
 
+@app.route("/chat")
+def chat():
+    return render_template("chat.html")
+
+@socketio.on("send_message")
+def handle_message(data):
+    emit("new_message", data, broadcast=True)
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    socketio.run(app, debug=True, allow_unsafe_werkzeug=True)
