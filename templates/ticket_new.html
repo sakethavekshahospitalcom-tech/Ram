@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>New Ticket</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <h1>Create a Ticket</h1>
+
+    {% if saved %}
+        <h2>Ticket saved!</h2>
+    {% endif %}
+
+    <form method="POST" action="/tickets/new">
+        <p><input type="text" name="title" placeholder="Ticket title" required></p>
+        <p><textarea name="description" placeholder="Describe the problem" rows="5" cols="40" required></textarea></p>
+        <p>
+            <select name="priority">
+                <option value="Low">Low</option>
+                <option value="Medium" selected>Medium</option>
+                <option value="High">High</option>
+            </select>
+        </p>
+        <p><button type="submit">Create Ticket</button></p>
+    </form>
+
+    <p><a href="/">Back to Home</a></p>
+</body>
+</html>
