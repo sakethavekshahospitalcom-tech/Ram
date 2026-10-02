@@ -1,9 +1,20 @@
 import sqlite3
-from flask import Flask, render_template, request, redirect
+import os
+import uuid
+from flask import Flask, render_template, request, redirect, session, send_from_directory
+from werkzeug.security import generate_password_hash, check_password_hash
 from flask_socketio import SocketIO, emit
 
 app = Flask(__name__)
 socketio = SocketIO(app)
+app.secret_key = "change-this-to-any-long-random-text"
+UPLOAD_FOLDER = "uploads"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024  # 8 MB max
+ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
+
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def get_db():
     conn = sqlite3.connect("data.db")
@@ -23,6 +34,20 @@ def init_db():
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'Staff'
+        )
+    """)
+
+    try:
+        conn.execute("ALTER TABLE tickets ADD COLUMN image TEXT")
+    except sqlite3.OperationalError:
+        pass
+
     conn.commit()
     conn.close()
 
@@ -60,21 +85,32 @@ def chat():
 
 @app.route("/tickets/new", methods=["GET", "POST"])
 def new_ticket():
+    if "user_id" not in session:
+        return redirect("/login")
     if request.method == "POST":
         title = request.form["title"]
         description = request.form["description"]
         priority = request.form["priority"]
+
+        image_name = None
+        file = request.files.get("camera_image")
+        if not file or file.filename == "":
+            file = request.files.get("gallery_image")
+        if file and file.filename != "" and allowed_file(file.filename):
+            ext = file.filename.rsplit(".", 1)[1].lower()
+            image_name = uuid.uuid4().hex + "." + ext
+            file.save(os.path.join(UPLOAD_FOLDER, image_name))
+
         conn = get_db()
         conn.execute(
-            "INSERT INTO tickets (title, description, priority) VALUES (?, ?, ?)",
-            (title, description, priority),
+            "INSERT INTO tickets (title, description, priority, image) VALUES (?, ?, ?, ?)",
+            (title, description, priority, image_name),
         )
         conn.commit()
         conn.close()
         socketio.emit("tickets_changed")
         return render_template("ticket_new.html", saved=True)
-    return render_template("ticket_new.html", saved=False)
-@app.route("/tickets")
+    return render_template("ticket_new.html", saved=False)@app.route("/tickets")
 def tickets():
     conn = get_db()
     rows = conn.execute("SELECT * FROM tickets ORDER BY id DESC").fetchall()
@@ -91,7 +127,56 @@ def update_status(ticket_id):
     socketio.emit("tickets_changed")
     return redirect("/tickets")
 
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+    if request.method == "POST":
+        username = request.form["username"].strip()
+        password = request.form["password"]
+        conn = get_db()
+        user = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        conn.close()
+        if user and check_password_hash(user["password_hash"], password):
+            session["user_id"] = user["id"]
+            session["username"] = user["username"]
+            session["role"] = user["role"]
+            return redirect("/tickets")
+        error = "Wrong username or password."
+    return render_template("login.html", error=error)
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/login")
+@app.route("/uploads/<filename>")
+def uploaded_file(filename):
+    if "user_id" not in session:
+        return redirect("/login")
+    return send_from_directory(UPLOAD_FOLDER, filename)
+
 @socketio.on("send_message")
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    error = None
+    if request.method == "POST":
+        username = request.form["username"].strip()
+        password = request.form["password"]
+        conn = get_db()
+        count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        role = "Admin" if count == 0 else "Staff"
+        try:
+            conn.execute(
+                "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+                (username, generate_password_hash(password), role),
+            )
+            conn.commit()
+            conn.close()
+            return redirect("/login")
+        except sqlite3.IntegrityError:
+            error = "That username is already taken."
+        conn.close()
+    return render_template("register.html", error=error)
 def handle_message(data):
     emit("new_message", data, broadcast=True)
 

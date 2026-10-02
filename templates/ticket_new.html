@@ -11,7 +11,7 @@
         <h2>Ticket saved!</h2>
     {% endif %}
 
-    <form method="POST" action="/tickets/new">
+    <form method="POST" action="/tickets/new" enctype="multipart/form-data">
         <p><input type="text" name="title" placeholder="Ticket title" required></p>
         <p><textarea name="description" placeholder="Describe the problem" rows="5" cols="40" required></textarea></p>
         <p>
@@ -20,6 +20,14 @@
                 <option value="Medium" selected>Medium</option>
                 <option value="High">High</option>
             </select>
+        </p>
+        <p>
+            <label>📷 Take a photo (camera):</label><br>
+            <input type="file" name="camera_image" accept="image/*" capture="environment">
+        </p>
+        <p>
+            <label>🖼️ Or choose from gallery / files:</label><br>
+            <input type="file" name="gallery_image" accept="image/*">
         </p>
         <p><button type="submit">Create Ticket</button></p>
     </form>
