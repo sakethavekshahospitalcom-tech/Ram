@@ -197,3 +197,119 @@ def tickets():
         staff = conn.execute(
             "SELECT id, username FROM users WHERE role = 'Staff'"
         ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT t.*, u.username AS assignee FROM tickets t "
+            "LEFT JOIN users u ON t.assigned_to = u.id "
+            "WHERE t.assigned_to = ? ORDER BY t.id DESC",
+            (session["user_id"],),
+        ).fetchall()
+        staff = []
+    conn.close()
+    return render_template("tickets.html", rows=rows, staff=staff)
+
+
+@app.route("/tickets/<int:ticket_id>/status", methods=["POST"])
+def update_status(ticket_id):
+    if session.get("role") != "Admin":
+        return "Only Admin can change status.", 403
+    new_status = request.form["status"]
+    if new_status in ("Open", "In Progress", "Closed"):
+        conn = get_db()
+        conn.execute(
+            "UPDATE tickets SET status = ? WHERE id = ?",
+            (new_status, ticket_id),
+        )
+        conn.commit()
+        conn.close()
+    socketio.emit("tickets_changed")
+    return redirect("/tickets")
+
+
+@app.route("/tickets/<int:ticket_id>/assign", methods=["POST"])
+def assign_ticket(ticket_id):
+    if session.get("role") != "Admin":
+        return "Only Admin can assign tickets.", 403
+    user_id = request.form.get("assigned_to")
+    conn = get_db()
+    if user_id:
+        conn.execute(
+            "UPDATE tickets SET assigned_to = ? WHERE id = ?",
+            (int(user_id), ticket_id),
+        )
+    else:
+        conn.execute(
+            "UPDATE tickets SET assigned_to = NULL WHERE id = ?",
+            (ticket_id,),
+        )
+    conn.commit()
+    conn.close()
+    socketio.emit("tickets_changed")
+    return redirect("/tickets")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+    if request.method == "POST":
+        username = request.form["username"].strip()
+        password = request.form["password"]
+        conn = get_db()
+        user = conn.execute(
+            "SELECT * FROM users WHERE username = ?", (username,)
+        ).fetchone()
+        conn.close()
+        if user and check_password_hash(user["password_hash"], password):
+            session["user_id"] = user["id"]
+            session["username"] = user["username"]
+            session["role"] = user["role"]
+            return redirect("/tickets")
+        error = "Wrong username or password."
+    return render_template("login.html", error=error)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/login")
+
+
+@app.route("/uploads/<filename>")
+def uploaded_file(filename):
+    if "user_id" not in session:
+        return redirect("/login")
+    return send_from_directory(UPLOAD_FOLDER, filename)
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    error = None
+    if request.method == "POST":
+        username = request.form["username"].strip()
+        password = request.form["password"]
+        email = request.form["email"].strip()
+        conn = get_db()
+        count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        role = "Admin" if count == 0 else "Staff"
+        try:
+            conn.execute(
+                "INSERT INTO users (username, password_hash, role, email) "
+                "VALUES (?, ?, ?, ?)",
+                (username, generate_password_hash(password), role, email),
+            )
+            conn.commit()
+            conn.close()
+            return redirect("/login")
+        except sqlite3.IntegrityError:
+            error = "That username is already taken."
+        conn.close()
+    return render_template("register.html", error=error)
+
+
+@socketio.on("send_message")
+def handle_message(data):
+    emit("new_message", data, broadcast=True)
+
+
+if __name__ == "__main__":
+    socketio.run(app, debug=True, allow_unsafe_werkzeug=True)
