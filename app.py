@@ -1,9 +1,14 @@
 import sqlite3
 import os
 import uuid
-from flask import Flask, render_template, request, redirect, session, send_from_directory
+import smtplib
+import threading
+from email.message import EmailMessage
+from flask import Flask, render_template, request, redirect
+from flask import session, send_from_directory
 from flask_socketio import SocketIO, emit
-from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.security import generate_password_hash
+from werkzeug.security import check_password_hash
 
 app = Flask(__name__)
 socketio = SocketIO(app)
@@ -11,12 +16,15 @@ app.secret_key = "change-this-to-any-long-random-text"
 
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024  # 8 MB max
+app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
 
 
 def allowed_file(filename):
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+    if "." not in filename:
+        return False
+    ext = filename.rsplit(".", 1)[1].lower()
+    return ext in ALLOWED_EXTENSIONS
 
 
 def get_db():
@@ -25,40 +33,77 @@ def get_db():
     return conn
 
 
+def add_column(conn, sql):
+    try:
+        conn.execute(sql)
+    except sqlite3.OperationalError:
+        pass
+
+
 def init_db():
     conn = get_db()
-    conn.execute("CREATE TABLE IF NOT EXISTS names (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL)")
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS tickets (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            description TEXT NOT NULL,
-            priority TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'Open',
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'Staff'
-        )
-    """)
-    try:
-        conn.execute("ALTER TABLE tickets ADD COLUMN image TEXT")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        conn.execute("ALTER TABLE tickets ADD COLUMN assigned_to INTEGER")
-    except sqlite3.OperationalError:
-        pass
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS names ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "name TEXT NOT NULL)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS tickets ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "title TEXT NOT NULL, "
+        "description TEXT NOT NULL, "
+        "priority TEXT NOT NULL, "
+        "status TEXT NOT NULL DEFAULT 'Open', "
+        "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS users ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "username TEXT NOT NULL UNIQUE, "
+        "password_hash TEXT NOT NULL, "
+        "role TEXT NOT NULL DEFAULT 'Staff')"
+    )
+    add_column(conn, "ALTER TABLE tickets ADD COLUMN image TEXT")
+    add_column(conn, "ALTER TABLE tickets ADD COLUMN assigned_to INTEGER")
+    add_column(conn, "ALTER TABLE users ADD COLUMN email TEXT")
     conn.commit()
     conn.close()
 
 
 init_db()
+
+
+def _send_email(to_list, subject, body):
+    sender = os.environ.get("GMAIL_USER")
+    password = os.environ.get("GMAIL_APP_PASSWORD")
+    if not sender or not password or not to_list:
+        print("Email skipped: variables not set or no recipients.")
+        return
+    try:
+        msg = EmailMessage()
+        msg["From"] = sender
+        msg["To"] = ", ".join(to_list)
+        msg["Subject"] = subject
+        msg.set_content(body)
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as server:
+            server.login(sender, password)
+            server.send_message(msg)
+        print("Email sent to:", to_list)
+    except Exception as e:
+        print("Email failed:", e)
+
+
+def notify_admins(subject, body):
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT email FROM users "
+        "WHERE role = 'Admin' AND email IS NOT NULL AND email != ''"
+    ).fetchall()
+    conn.close()
+    to_list = [r["email"] for r in rows]
+    t = threading.Thread(target=_send_email, args=(to_list, subject, body))
+    t.daemon = True
+    t.start()
 
 
 @app.route("/")
@@ -116,12 +161,22 @@ def new_ticket():
 
         conn = get_db()
         conn.execute(
-            "INSERT INTO tickets (title, description, priority, image) VALUES (?, ?, ?, ?)",
+            "INSERT INTO tickets (title, description, priority, image) "
+            "VALUES (?, ?, ?, ?)",
             (title, description, priority, image_name),
         )
         conn.commit()
         conn.close()
         socketio.emit("tickets_changed")
+
+        who = session.get("username", "unknown")
+        body = "A new ticket was raised by " + who + ".\n\n"
+        body += "Title: " + title + "\n"
+        body += "Priority: " + priority + "\n\n"
+        body += "Description:\n" + description + "\n\n"
+        body += "Open the tickets page to view and assign it."
+        notify_admins("New ticket: " + title, body)
+
         return render_template("ticket_new.html", saved=True)
     return render_template("ticket_new.html", saved=False)
 
@@ -134,9 +189,12 @@ def tickets():
     if session.get("role") == "Admin":
         rows = conn.execute(
             "SELECT t.*, u.username AS assignee FROM tickets t "
-            "LEFT JOIN users u ON t.assigned_to = u.id ORDER BY t.id DESC"
+            "LEFT JOIN users u ON t.assigned_to = u.id "
+            "ORDER BY t.id DESC"
         ).fetchall()
-        staff = conn.execute("SELECT id, username FROM users WHERE role = 'Staff'").fetchall()
+        staff = conn.execute(
+            "SELECT id, username FROM users WHERE role = 'Staff'"
+        ).fetchall()
     else:
         rows = conn.execute(
             "SELECT t.*, u.username AS assignee FROM tickets t "
@@ -156,7 +214,10 @@ def update_status(ticket_id):
     new_status = request.form["status"]
     if new_status in ("Open", "In Progress", "Closed"):
         conn = get_db()
-        conn.execute("UPDATE tickets SET status = ? WHERE id = ?", (new_status, ticket_id))
+        conn.execute(
+            "UPDATE tickets SET status = ? WHERE id = ?",
+            (new_status, ticket_id),
+        )
         conn.commit()
         conn.close()
     socketio.emit("tickets_changed")
@@ -170,9 +231,15 @@ def assign_ticket(ticket_id):
     user_id = request.form.get("assigned_to")
     conn = get_db()
     if user_id:
-        conn.execute("UPDATE tickets SET assigned_to = ? WHERE id = ?", (int(user_id), ticket_id))
+        conn.execute(
+            "UPDATE tickets SET assigned_to = ? WHERE id = ?",
+            (int(user_id), ticket_id),
+        )
     else:
-        conn.execute("UPDATE tickets SET assigned_to = NULL WHERE id = ?", (ticket_id,))
+        conn.execute(
+            "UPDATE tickets SET assigned_to = NULL WHERE id = ?",
+            (ticket_id,),
+        )
     conn.commit()
     conn.close()
     socketio.emit("tickets_changed")
@@ -186,7 +253,9 @@ def login():
         username = request.form["username"].strip()
         password = request.form["password"]
         conn = get_db()
-        user = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        user = conn.execute(
+            "SELECT * FROM users WHERE username = ?", (username,)
+        ).fetchone()
         conn.close()
         if user and check_password_hash(user["password_hash"], password):
             session["user_id"] = user["id"]
@@ -216,13 +285,15 @@ def register():
     if request.method == "POST":
         username = request.form["username"].strip()
         password = request.form["password"]
+        email = request.form["email"].strip()
         conn = get_db()
         count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         role = "Admin" if count == 0 else "Staff"
         try:
             conn.execute(
-                "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-                (username, generate_password_hash(password), role),
+                "INSERT INTO users (username, password_hash, role, email) "
+                "VALUES (?, ?, ?, ?)",
+                (username, generate_password_hash(password), role, email),
             )
             conn.commit()
             conn.close()
