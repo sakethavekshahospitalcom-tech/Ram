@@ -24,6 +24,11 @@
 <body>
     <h1>All Tickets</h1>
 
+    {% if session.get("role") == "Admin" %}
+        <button id="soundBtn" onclick="enableSound()">🔔 Enable sound</button>
+    {% endif %}
+    <div id="alertBanner" style="display:none; background:#fefcbf; padding:10px; margin:10px auto; max-width:500px; border-radius:6px;"></div>
+
     {% if rows %}
         <table>
             <tr>
@@ -92,8 +97,57 @@
 
     <script>
         var socket = io();
+        var soundOn = sessionStorage.getItem("soundOn") === "1";
+        var audioCtx = null;
+
+        function beep() {
+            try {
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                var osc = audioCtx.createOscillator();
+                var gain = audioCtx.createGain();
+                osc.type = "sine";
+                osc.frequency.value = 880;
+                gain.gain.value = 0.3;
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.4);
+            } catch (e) {}
+        }
+
+        function enableSound() {
+            soundOn = true;
+            sessionStorage.setItem("soundOn", "1");
+            beep();
+            document.getElementById("soundBtn").style.display = "none";
+        }
+
+        window.onload = function () {
+            var btn = document.getElementById("soundBtn");
+            if (soundOn && btn) {
+                btn.style.display = "none";
+            }
+            var pending = sessionStorage.getItem("pendingAlert");
+            if (pending) {
+                sessionStorage.removeItem("pendingAlert");
+                var b = document.getElementById("alertBanner");
+                b.textContent = "New ticket: " + pending;
+                b.style.display = "block";
+                setTimeout(function () { b.style.display = "none"; }, 6000);
+            }
+        };
+
+        socket.on("new_ticket_alert", function (data) {
+            if (soundOn) {
+                beep();
+            }
+            sessionStorage.setItem("pendingAlert", data.title);
+        });
+
         socket.on("tickets_changed", function () {
-            location.reload();
+            setTimeout(function () { location.reload(); }, 600);
         });
     </script>
 </body>
