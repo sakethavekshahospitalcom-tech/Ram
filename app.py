@@ -77,7 +77,7 @@ def _send_email(to_list, subject, body):
     sender = os.environ.get("GMAIL_USER")
     password = os.environ.get("GMAIL_APP_PASSWORD")
     if not sender or not password or not to_list:
-        print("Email skipped: variables not set or no recipients.")
+        print("Email skipped: variables not set or no recipients.", flush=True)
         return
     try:
         msg = EmailMessage()
@@ -88,9 +88,9 @@ def _send_email(to_list, subject, body):
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as server:
             server.login(sender, password)
             server.send_message(msg)
-        print("Email sent to:", to_list)
+        print("Email sent to:", to_list, flush=True)
     except Exception as e:
-        print("Email failed:", e)
+        print("Email failed:", e, flush=True)
 
 
 def notify_admins(subject, body):
@@ -101,6 +101,7 @@ def notify_admins(subject, body):
     ).fetchall()
     conn.close()
     to_list = [r["email"] for r in rows]
+    print("Notify admins called. Recipients:", to_list, flush=True)
     t = threading.Thread(target=_send_email, args=(to_list, subject, body))
     t.daemon = True
     t.start()
