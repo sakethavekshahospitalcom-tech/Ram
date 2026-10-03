@@ -5,6 +5,8 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+    {% include "navbar.html" %}
+
     <h1>Create a Ticket</h1>
 
     {% if saved %}
@@ -32,6 +34,7 @@
         <p><button type="submit">Create Ticket</button></p>
     </form>
 
+    <p><a href="/tickets">View tickets</a></p>
     <p><a href="/">Back to Home</a></p>
 </body>
 </html>

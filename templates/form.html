@@ -5,6 +5,13 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+    <div style="text-align:center; margin-bottom:20px;">
+        <img src="{{ url_for('static', filename='logo.jpeg') }}"
+             alt="Ganesh Youth Force"
+             style="width:110px; height:110px;
+                    border-radius:50%; object-fit:cover;">
+    </div>
+
     <h1>What is your name?</h1>
     <form method="POST" action="/form">
         <input type="text" name="username" placeholder="Type your name" required>

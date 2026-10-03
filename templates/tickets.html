@@ -22,6 +22,13 @@
     </style>
 </head>
 <body>
+    <div style="text-align:center; margin-bottom:20px;">
+        <img src="{{ url_for('static', filename='logo.jpeg') }}"
+             alt="Ganesh Youth Force"
+             style="width:110px; height:110px;
+                    border-radius:50%; object-fit:cover;">
+    </div>
+
     <h1>All Tickets</h1>
 
     {% if session.get("role") == "Admin" %}
