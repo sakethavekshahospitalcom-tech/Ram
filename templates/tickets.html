@@ -32,6 +32,7 @@
                 <th>Photo</th>
                 <th>Priority</th>
                 <th>Status</th>
+                <th>Assigned to</th>
                 <th>Created</th>
             </tr>
             {% for t in rows %}
@@ -49,15 +50,35 @@
                 </td>
                 <td>{{ t["priority"] }}</td>
                 <td>
-                    <form method="POST" action="/tickets/{{ t['id'] }}/status">
-                        <select name="status">
-                            <option value="Open" {% if t["status"] == "Open" %}selected{% endif %}>Open</option>
-                            <option value="In Progress" {% if t["status"] == "In Progress" %}selected{% endif %}>In Progress</option>
-                            <option value="Closed" {% if t["status"] == "Closed" %}selected{% endif %}>Closed</option>
-                        </select>
-                        <button type="submit">Update</button>
-                    </form>
-                </td>                <td>{{ t["created_at"] }}</td>
+                    {% if session.get("role") == "Admin" %}
+                        <form method="POST" action="/tickets/{{ t['id'] }}/status">
+                            <select name="status">
+                                <option value="Open" {% if t["status"] == "Open" %}selected{% endif %}>Open</option>
+                                <option value="In Progress" {% if t["status"] == "In Progress" %}selected{% endif %}>In Progress</option>
+                                <option value="Closed" {% if t["status"] == "Closed" %}selected{% endif %}>Closed</option>
+                            </select>
+                            <button type="submit">Update</button>
+                        </form>
+                    {% else %}
+                        {{ t["status"] }}
+                    {% endif %}
+                </td>
+                <td>
+                    {% if session.get("role") == "Admin" %}
+                        <form method="POST" action="/tickets/{{ t['id'] }}/assign">
+                            <select name="assigned_to">
+                                <option value="">-- Unassigned --</option>
+                                {% for s in staff %}
+                                    <option value="{{ s['id'] }}" {% if t["assigned_to"] == s["id"] %}selected{% endif %}>{{ s["username"] }}</option>
+                                {% endfor %}
+                            </select>
+                            <button type="submit">Assign</button>
+                        </form>
+                    {% else %}
+                        {{ t["assignee"] or "-" }}
+                    {% endif %}
+                </td>
+                <td>{{ t["created_at"] }}</td>
             </tr>
             {% endfor %}
         </table>
@@ -67,6 +88,8 @@
 
     <p><a href="/tickets/new">Create a new ticket</a></p>
     <p><a href="/">Back to Home</a></p>
+    <p><a href="/logout">Logout</a></p>
+
     <script>
         var socket = io();
         socket.on("tickets_changed", function () {

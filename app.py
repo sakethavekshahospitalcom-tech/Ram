@@ -50,6 +50,10 @@ def init_db():
         conn.execute("ALTER TABLE tickets ADD COLUMN image TEXT")
     except sqlite3.OperationalError:
         pass
+    try:
+        conn.execute("ALTER TABLE tickets ADD COLUMN assigned_to INTEGER")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
@@ -127,9 +131,22 @@ def tickets():
     if "user_id" not in session:
         return redirect("/login")
     conn = get_db()
-    rows = conn.execute("SELECT * FROM tickets ORDER BY id DESC").fetchall()
+    if session.get("role") == "Admin":
+        rows = conn.execute(
+            "SELECT t.*, u.username AS assignee FROM tickets t "
+            "LEFT JOIN users u ON t.assigned_to = u.id ORDER BY t.id DESC"
+        ).fetchall()
+        staff = conn.execute("SELECT id, username FROM users WHERE role = 'Staff'").fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT t.*, u.username AS assignee FROM tickets t "
+            "LEFT JOIN users u ON t.assigned_to = u.id "
+            "WHERE t.assigned_to = ? ORDER BY t.id DESC",
+            (session["user_id"],),
+        ).fetchall()
+        staff = []
     conn.close()
-    return render_template("tickets.html", rows=rows)
+    return render_template("tickets.html", rows=rows, staff=staff)
 
 
 @app.route("/tickets/<int:ticket_id>/status", methods=["POST"])
@@ -142,6 +159,22 @@ def update_status(ticket_id):
         conn.execute("UPDATE tickets SET status = ? WHERE id = ?", (new_status, ticket_id))
         conn.commit()
         conn.close()
+    socketio.emit("tickets_changed")
+    return redirect("/tickets")
+
+
+@app.route("/tickets/<int:ticket_id>/assign", methods=["POST"])
+def assign_ticket(ticket_id):
+    if session.get("role") != "Admin":
+        return "Only Admin can assign tickets.", 403
+    user_id = request.form.get("assigned_to")
+    conn = get_db()
+    if user_id:
+        conn.execute("UPDATE tickets SET assigned_to = ? WHERE id = ?", (int(user_id), ticket_id))
+    else:
+        conn.execute("UPDATE tickets SET assigned_to = NULL WHERE id = ?", (ticket_id,))
+    conn.commit()
+    conn.close()
     socketio.emit("tickets_changed")
     return redirect("/tickets")
 
