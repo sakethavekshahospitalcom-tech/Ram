@@ -29,67 +29,63 @@
     {% endif %}
     <div id="alertBanner" style="display:none; background:#fefcbf; padding:10px; margin:10px auto; max-width:500px; border-radius:6px;"></div>
 
-    {% if rows %}
-        <table>
-            <tr>
-                <th>ID</th>
-                <th>Title</th>
-                <th>Photo</th>
-                <th>Priority</th>
-                <th>Status</th>
-                <th>Assigned to</th>
-                <th>Created</th>
-            </tr>
-            {% for t in rows %}
-            <tr>
-                <td>{{ t["id"] }}</td>
-                <td>{{ t["title"] }}</td>
-                <td>
-                    {% if t["image"] %}
-                        <a href="/uploads/{{ t['image'] }}" target="_blank">
-                            <img src="/uploads/{{ t['image'] }}" alt="ticket photo" style="width:80px; height:80px; object-fit:cover; border-radius:6px;">
-                        </a>
-                    {% else %}
-                        -
-                    {% endif %}
-                </td>
-                <td>{{ t["priority"] }}</td>
-                <td>
-                    {% if session.get("role") == "Admin" %}
-                        <form method="POST" action="/tickets/{{ t['id'] }}/status">
-                            <select name="status">
-                                <option value="Open" {% if t["status"] == "Open" %}selected{% endif %}>Open</option>
-                                <option value="In Progress" {% if t["status"] == "In Progress" %}selected{% endif %}>In Progress</option>
-                                <option value="Closed" {% if t["status"] == "Closed" %}selected{% endif %}>Closed</option>
-                            </select>
-                            <button type="submit">Update</button>
-                        </form>
-                    {% else %}
-                        {{ t["status"] }}
-                    {% endif %}
-                </td>
-                <td>
-                    {% if session.get("role") == "Admin" %}
-                        <form method="POST" action="/tickets/{{ t['id'] }}/assign">
-                            <select name="assigned_to">
-                                <option value="">-- Unassigned --</option>
-                                {% for s in staff %}
-                                    <option value="{{ s['id'] }}" {% if t["assigned_to"] == s["id"] %}selected{% endif %}>{{ s["username"] }}</option>
-                                {% endfor %}
-                            </select>
-                            <button type="submit">Assign</button>
-                        </form>
-                    {% else %}
-                        {{ t["assignee"] or "-" }}
-                    {% endif %}
-                </td>
-                <td>{{ t["created_at"] }}</td>
-            </tr>
-            {% endfor %}
-        </table>
-    {% else %}
-        <p>No tickets yet.</p>
-    {% endif %}
+    <table id="ticketTable">
+        <tr>
+            <th>ID</th>
+            <th>Title</th>
+            <th>Photo</th>
+            <th>Priority</th>
+            <th>Status</th>
+            <th>Assigned to</th>
+            <th>Created</th>
+        </tr>
+        {% for t in rows %}
+        <tr>
+            <td>{{ t["id"] }}</td>
+            <td>{{ t["title"] }}</td>
+            <td>
+                {% if t["image"] %}
+                    <a href="/uploads/{{ t['image'] }}" target="_blank">
+                        <img src="/uploads/{{ t['image'] }}" alt="ticket photo" style="width:80px; height:80px; object-fit:cover; border-radius:6px;">
+                    </a>
+                {% else %}
+                    -
+                {% endif %}
+            </td>
+            <td>{{ t["priority"] }}</td>
+            <td>
+                {% if session.get("role") == "Admin" %}
+                    <form method="POST" action="/tickets/{{ t['id'] }}/status">
+                        <select name="status">
+                            <option value="Open" {% if t["status"] == "Open" %}selected{% endif %}>Open</option>
+                            <option value="In Progress" {% if t["status"] == "In Progress" %}selected{% endif %}>In Progress</option>
+                            <option value="Closed" {% if t["status"] == "Closed" %}selected{% endif %}>Closed</option>
+                        </select>
+                        <button type="submit">Update</button>
+                    </form>
+                {% else %}
+                    {{ t["status"] }}
+                {% endif %}
+            </td>
+            <td>
+                {% if session.get("role") == "Admin" %}
+                    <form method="POST" action="/tickets/{{ t['id'] }}/assign">
+                        <select name="assigned_to">
+                            <option value="">-- Unassigned --</option>
+                            {% for s in staff %}
+                                <option value="{{ s['id'] }}" {% if t["assigned_to"] == s["id"] %}selected{% endif %}>{{ s["username"] }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit">Assign</button>
+                    </form>
+                {% else %}
+                    {{ t["assignee"] or "-" }}
+                {% endif %}
+            </td>
+            <td>{{ t["created_at"] }}</td>
+        </tr>
+        {% endfor %}
+    </table>
 
     <p><a href="/tickets/new">Create a new ticket</a></p>
     <p><a href="/">Back to Home</a></p>
@@ -100,20 +96,28 @@
         var soundOn = sessionStorage.getItem("soundOn") === "1";
         var audioCtx = null;
 
+        function getCtx() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === "suspended") {
+                audioCtx.resume();
+            }
+            return audioCtx;
+        }
+
         function beep() {
             try {
-                if (!audioCtx) {
-                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                }
-                var osc = audioCtx.createOscillator();
-                var gain = audioCtx.createGain();
+                var ctx = getCtx();
+                var osc = ctx.createOscillator();
+                var gain = ctx.createGain();
                 osc.type = "sine";
                 osc.frequency.value = 880;
                 gain.gain.value = 0.3;
                 osc.connect(gain);
-                gain.connect(audioCtx.destination);
+                gain.connect(ctx.destination);
                 osc.start();
-                osc.stop(audioCtx.currentTime + 0.4);
+                osc.stop(ctx.currentTime + 0.4);
             } catch (e) {}
         }
 
@@ -124,18 +128,30 @@
             document.getElementById("soundBtn").style.display = "none";
         }
 
+        function showBanner(text) {
+            var b = document.getElementById("alertBanner");
+            b.textContent = text;
+            b.style.display = "block";
+            setTimeout(function () { b.style.display = "none"; }, 6000);
+        }
+
+        function refreshTable() {
+            fetch("/tickets")
+                .then(function (r) { return r.text(); })
+                .then(function (html) {
+                    var doc = new DOMParser().parseFromString(html, "text/html");
+                    var newTable = doc.getElementById("ticketTable");
+                    var oldTable = document.getElementById("ticketTable");
+                    if (newTable && oldTable) {
+                        oldTable.innerHTML = newTable.innerHTML;
+                    }
+                });
+        }
+
         window.onload = function () {
             var btn = document.getElementById("soundBtn");
             if (soundOn && btn) {
                 btn.style.display = "none";
-            }
-            var pending = sessionStorage.getItem("pendingAlert");
-            if (pending) {
-                sessionStorage.removeItem("pendingAlert");
-                var b = document.getElementById("alertBanner");
-                b.textContent = "New ticket: " + pending;
-                b.style.display = "block";
-                setTimeout(function () { b.style.display = "none"; }, 6000);
             }
         };
 
@@ -143,11 +159,11 @@
             if (soundOn) {
                 beep();
             }
-            sessionStorage.setItem("pendingAlert", data.title);
+            showBanner("New ticket: " + data.title);
         });
 
         socket.on("tickets_changed", function () {
-            setTimeout(function () { location.reload(); }, 600);
+            setTimeout(refreshTable, 500);
         });
     </script>
 </body>
