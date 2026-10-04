@@ -1,23 +1,105 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>All Tickets</title>
+    <title>Tickets</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <style>
-        table {
-            margin: auto;
-            border-collapse: collapse;
-            background: white;
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            max-width: 1250px;
+            margin: 0 auto 10px auto;
         }
-        th, td {
-            border: 1px solid #cbd5e0;
-            padding: 10px 16px;
+        .topbar .right {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .btn-link {
+            display: inline-block;
+            padding: 9px 16px;
+            border-radius: 8px;
+            border: 1px solid #8b1e1e;
+            background: #ffffff;
+            color: #8b1e1e;
+            font-weight: 600;
+            text-decoration: none;
+        }
+        .btn-link:hover {
+            background: #8b1e1e;
+            color: #ffffff;
+            text-decoration: none;
+        }
+        .btn-excel {
+            background: #d4a017;
+            border-color: #d4a017;
+            color: #2d1a00;
+        }
+        .btn-excel:hover {
+            background: #b8890f;
+            border-color: #b8890f;
+            color: #ffffff;
+        }
+        .btn-main {
+            background: #8b1e1e;
+            color: #ffffff;
+        }
+        .btn-main:hover {
+            background: #a52a2a;
+        }
+        .table-wrap {
+            overflow-x: auto;
+            max-width: 1250px;
+            margin: 0 auto;
+        }
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .badge.High { background: #fde2e2; color: #8b1e1e; }
+        .badge.Medium { background: #fff0cc; color: #8a5a0a; }
+        .badge.Low { background: #dcf3e3; color: #1f5c2e; }
+        .status-Open { color: #8b1e1e; font-weight: 700; }
+        .status-In-Progress { color: #b8890f; font-weight: 700; }
+        .status-Closed { color: #1f7a3a; font-weight: 700; }
+        .small { font-size: 12px; color: #5c6275; }
+        .dd summary {
+            cursor: pointer;
+            color: #8b1e1e;
+            font-weight: 600;
+            font-size: 13px;
+        }
+        .dd-box {
+            max-height: 170px;
+            overflow-y: auto;
             text-align: left;
+            padding: 6px 4px;
+            font-size: 14px;
         }
-        th {
-            background-color: #2b6cb0;
-            color: white;
+        .dd-box label {
+            display: block;
+            padding: 2px 0;
+            white-space: nowrap;
+        }
+        .dd-box input {
+            padding: 0;
+            margin-right: 6px;
+        }
+        .btn-del {
+            background: #ffffff;
+            color: #b00020;
+            border: 1px solid #b00020;
+        }
+        .btn-del:hover {
+            background: #b00020;
+            color: #ffffff;
         }
     </style>
 </head>
@@ -29,13 +111,34 @@
                     border-radius:50%; object-fit:cover;">
     </div>
 
-    <h1>All Tickets</h1>
+    <div class="topbar">
+        <div class="left">
+            <a class="btn-link btn-excel" href="/tickets/export">
+                ⬇ Download Excel
+            </a>
+        </div>
+        <div class="right">
+            <a class="btn-link btn-main" href="/tickets/new">
+                + Create New Ticket
+            </a>
+            <a class="btn-link" href="/">Back to Home</a>
+            {% if session.get("role") == "Admin" %}
+                <a class="btn-link" href="/admin/passwords">Reset Passwords</a>
+            {% endif %}
+            <a class="btn-link" href="/change-password">Change Password</a>
+            <a class="btn-link" href="/logout">Logout</a>
+        </div>
+    </div>
+
+    <h1>Tickets</h1>
+    <p>Logged in as: <b>{{ session.get("username") }}</b></p>
 
     {% if session.get("role") == "Admin" %}
         <button id="soundBtn" onclick="enableSound()">🔔 Enable sound</button>
     {% endif %}
-    <div id="alertBanner" style="display:none; background:#fefcbf; padding:10px; margin:10px auto; max-width:500px; border-radius:6px;"></div>
+    <div id="alertBanner" style="display:none; background:#fff0cc; padding:10px; margin:10px auto; max-width:500px; border-radius:6px;"></div>
 
+    <div class="table-wrap">
     <table id="ticketTable">
         <tr>
             <th>ID</th>
@@ -43,8 +146,13 @@
             <th>Photo</th>
             <th>Priority</th>
             <th>Status</th>
+            <th>Raised by</th>
             <th>Assigned to</th>
-            <th>Created</th>
+            <th>Raised on</th>
+            <th>Closed by / on</th>
+            {% if session.get("role") == "Admin" %}
+                <th>Delete</th>
+            {% endif %}
         </tr>
         {% for t in rows %}
         <tr>
@@ -53,15 +161,15 @@
             <td>
                 {% if t["image"] %}
                     <a href="/uploads/{{ t['image'] }}" target="_blank">
-                        <img src="/uploads/{{ t['image'] }}" alt="ticket photo" style="width:80px; height:80px; object-fit:cover; border-radius:6px;">
+                        <img src="/uploads/{{ t['image'] }}" alt="ticket photo" style="width:70px; height:70px; object-fit:cover; border-radius:6px;">
                     </a>
                 {% else %}
                     -
                 {% endif %}
             </td>
-            <td>{{ t["priority"] }}</td>
+            <td><span class="badge {{ t['priority'] }}">{{ t["priority"] }}</span></td>
             <td>
-                {% if session.get("role") == "Admin" %}
+                {% if session.get("role") == "Admin" or session.get("username") in t["depts"] %}
                     <form method="POST" action="/tickets/{{ t['id'] }}/status">
                         <select name="status">
                             <option value="Open" {% if t["status"] == "Open" %}selected{% endif %}>Open</option>
@@ -71,32 +179,46 @@
                         <button type="submit">Update</button>
                     </form>
                 {% else %}
-                    {{ t["status"] }}
+                    <span class="status-{{ t['status']|replace(' ', '-') }}">{{ t["status"] }}</span>
                 {% endif %}
             </td>
+            <td>{{ t["raised_by"] or "-" }}</td>
             <td>
-                {% if session.get("role") == "Admin" %}
-                    <form method="POST" action="/tickets/{{ t['id'] }}/assign">
-                        <select name="assigned_to">
-                            <option value="">-- Unassigned --</option>
-                            {% for s in staff %}
-                                <option value="{{ s['id'] }}" {% if t["assigned_to"] == s["id"] %}selected{% endif %}>{{ s["username"] }}</option>
+                <div class="small">{{ t["depts"]|join(", ") or "Not assigned" }}</div>
+                <form method="POST" action="/tickets/{{ t['id'] }}/assign">
+                    <details class="dd">
+                        <summary>Assign / change</summary>
+                        <div class="dd-box">
+                            {% for d in departments %}
+                                <label>
+                                    <input type="checkbox" name="depts" value="{{ d }}" {% if d in t["depts"] %}checked{% endif %}>{{ d }}
+                                </label>
                             {% endfor %}
-                        </select>
-                        <button type="submit">Assign</button>
-                    </form>
-                {% else %}
-                    {{ t["assignee"] or "-" }}
-                {% endif %}
+                        </div>
+                        <button type="submit">Save</button>
+                    </details>
+                </form>
             </td>
             <td>{{ t["created_at"] }}</td>
+            <td>
+                {% if t["closed_at"] %}
+                    {{ t["closed_by"] }}<br>
+                    <span class="small">{{ t["closed_at"] }}</span>
+                {% else %}
+                    -
+                {% endif %}
+            </td>
+            {% if session.get("role") == "Admin" %}
+            <td>
+                <form method="POST" action="/tickets/{{ t['id'] }}/delete" onsubmit="return confirm('Delete this ticket permanently?');">
+                    <button type="submit" class="btn-del">Delete</button>
+                </form>
+            </td>
+            {% endif %}
         </tr>
         {% endfor %}
     </table>
-
-    <p><a href="/tickets/new">Create a new ticket</a></p>
-    <p><a href="/">Back to Home</a></p>
-    <p><a href="/logout">Logout</a></p>
+    </div>
 
     <script>
         var socket = io();
@@ -143,6 +265,9 @@
         }
 
         function refreshTable() {
+            if (document.querySelector("details[open]")) {
+                return;
+            }
             fetch("/tickets")
                 .then(function (r) { return r.text(); })
                 .then(function (html) {

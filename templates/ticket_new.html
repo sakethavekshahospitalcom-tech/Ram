@@ -3,9 +3,63 @@
 <head>
     <title>New Ticket</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .dept-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4px 10px;
+            text-align: left;
+            font-size: 15px;
+            max-height: 190px;
+            overflow-y: auto;
+            padding: 8px 10px;
+            border: 1px solid #d5d9e2;
+            border-radius: 8px;
+            background: #ffffff;
+        }
+        .dept-grid label {
+            color: #2d3142;
+            white-space: nowrap;
+        }
+        .dept-grid input {
+            padding: 0;
+            margin-right: 6px;
+            width: auto;
+        }
+        .topright {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            max-width: 900px;
+            margin: 0 auto 10px auto;
+            flex-wrap: wrap;
+        }
+        .topright a {
+            padding: 8px 14px;
+            border: 1px solid #8b1e1e;
+            border-radius: 8px;
+            background: #ffffff;
+        }
+        .topright a:hover {
+            background: #8b1e1e;
+            color: #ffffff;
+            text-decoration: none;
+        }
+    </style>
 </head>
 <body>
-    {% include "navbar.html" %}
+    <div class="topright">
+        <a href="/tickets">View Tickets</a>
+        <a href="/">Back to Home</a>
+        <a href="/logout">Logout</a>
+    </div>
+
+    <div style="text-align:center; margin-bottom:20px;">
+        <img src="{{ url_for('static', filename='logo.jpeg') }}"
+             alt="Ganesh Youth Force"
+             style="width:110px; height:110px;
+                    border-radius:50%; object-fit:cover;">
+    </div>
 
     <h1>Create a Ticket</h1>
 
@@ -23,6 +77,12 @@
                 <option value="High">High</option>
             </select>
         </p>
+        <p><label>Send to department(s):</label></p>
+        <div class="dept-grid">
+            {% for d in departments %}
+                <label><input type="checkbox" name="depts" value="{{ d }}">{{ d }}</label>
+            {% endfor %}
+        </div>
         <p>
             <label>📷 Take a photo (camera):</label><br>
             <input type="file" name="camera_image" accept="image/*" capture="environment">
@@ -33,8 +93,5 @@
         </p>
         <p><button type="submit">Create Ticket</button></p>
     </form>
-
-    <p><a href="/tickets">View tickets</a></p>
-    <p><a href="/">Back to Home</a></p>
 </body>
 </html>

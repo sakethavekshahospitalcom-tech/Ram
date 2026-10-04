@@ -1,23 +1,51 @@
 import sqlite3
 import os
+import io
 import uuid
 import smtplib
 import threading
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from flask import Flask, render_template, request, redirect
-from flask import session, send_from_directory
+from flask import session, send_from_directory, send_file
 from flask_socketio import SocketIO, emit
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
 from werkzeug.security import generate_password_hash
 from werkzeug.security import check_password_hash
 
 app = Flask(__name__)
 socketio = SocketIO(app)
-app.secret_key = "change-this-to-any-long-random-text"
+app.secret_key = os.environ.get(
+    "SECRET_KEY", "change-this-to-any-long-random-text"
+)
 
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
+
+DEPARTMENTS = [
+    "IT", "Bio Medical", "HR", "Accounts", "Swasta Ward",
+    "ICU", "NICU", "Management", "Admin", "Lab",
+    "Radiology", "Security", "Canteen", "OPD", "Billing",
+    "Insurance", "Facility",
+]
+
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def now_ist():
+    return datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def split_dt(value):
+    if not value:
+        return "", ""
+    parts = value.split(" ")
+    if len(parts) == 2:
+        return parts[0], parts[1]
+    return value, ""
 
 
 def allowed_file(filename):
@@ -63,14 +91,42 @@ def init_db():
         "password_hash TEXT NOT NULL, "
         "role TEXT NOT NULL DEFAULT 'Staff')"
     )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS ticket_depts ("
+        "ticket_id INTEGER NOT NULL, "
+        "dept TEXT NOT NULL, "
+        "PRIMARY KEY (ticket_id, dept))"
+    )
     add_column(conn, "ALTER TABLE tickets ADD COLUMN image TEXT")
     add_column(conn, "ALTER TABLE tickets ADD COLUMN assigned_to INTEGER")
+    add_column(conn, "ALTER TABLE tickets ADD COLUMN raised_by TEXT")
+    add_column(conn, "ALTER TABLE tickets ADD COLUMN closed_by TEXT")
+    add_column(conn, "ALTER TABLE tickets ADD COLUMN closed_at TEXT")
     add_column(conn, "ALTER TABLE users ADD COLUMN email TEXT")
     conn.commit()
     conn.close()
 
 
+def seed_departments():
+    default_pw = os.environ.get("DEFAULT_PASSWORD", "Welcome@123")
+    conn = get_db()
+    for dept in DEPARTMENTS:
+        row = conn.execute(
+            "SELECT id FROM users WHERE username = ?", (dept,)
+        ).fetchone()
+        if not row:
+            role = "Admin" if dept == "Admin" else "Dept"
+            conn.execute(
+                "INSERT INTO users (username, password_hash, role) "
+                "VALUES (?, ?, ?)",
+                (dept, generate_password_hash(default_pw), role),
+            )
+    conn.commit()
+    conn.close()
+
+
 init_db()
+seed_departments()
 
 
 def _send_email(to_list, subject, body):
@@ -101,10 +157,62 @@ def notify_admins(subject, body):
     ).fetchall()
     conn.close()
     to_list = [r["email"] for r in rows]
-    print("Notify admins called. Recipients:", to_list, flush=True)
     t = threading.Thread(target=_send_email, args=(to_list, subject, body))
     t.daemon = True
     t.start()
+
+
+def clean_depts(values):
+    good = [d for d in values if d in DEPARTMENTS]
+    return list(dict.fromkeys(good))
+
+
+def can_access(conn, ticket_id):
+    if session.get("role") == "Admin":
+        return True
+    me = session.get("username")
+    row = conn.execute(
+        "SELECT 1 FROM tickets WHERE id = ? AND (raised_by = ? OR id IN "
+        "(SELECT ticket_id FROM ticket_depts WHERE dept = ?))",
+        (ticket_id, me, me),
+    ).fetchone()
+    return row is not None
+
+
+def is_assigned(conn, ticket_id):
+    row = conn.execute(
+        "SELECT 1 FROM ticket_depts WHERE ticket_id = ? AND dept = ?",
+        (ticket_id, session.get("username")),
+    ).fetchone()
+    return row is not None
+
+
+def load_tickets():
+    conn = get_db()
+    if session.get("role") == "Admin":
+        rows = conn.execute(
+            "SELECT * FROM tickets ORDER BY id DESC"
+        ).fetchall()
+    else:
+        me = session.get("username")
+        rows = conn.execute(
+            "SELECT * FROM tickets WHERE raised_by = ? OR id IN "
+            "(SELECT ticket_id FROM ticket_depts WHERE dept = ?) "
+            "ORDER BY id DESC",
+            (me, me),
+        ).fetchall()
+    result = []
+    for r in rows:
+        t = dict(r)
+        d = conn.execute(
+            "SELECT dept FROM ticket_depts WHERE ticket_id = ? "
+            "ORDER BY dept",
+            (t["id"],),
+        ).fetchall()
+        t["depts"] = [x["dept"] for x in d]
+        result.append(t)
+    conn.close()
+    return result
 
 
 @app.route("/")
@@ -150,6 +258,7 @@ def new_ticket():
         title = request.form["title"]
         description = request.form["description"]
         priority = request.form["priority"]
+        depts = clean_depts(request.form.getlist("depts"))
 
         image_name = None
         file = request.files.get("camera_image")
@@ -160,88 +269,164 @@ def new_ticket():
             image_name = uuid.uuid4().hex + "." + ext
             file.save(os.path.join(UPLOAD_FOLDER, image_name))
 
+        who = session.get("username", "unknown")
         conn = get_db()
-        conn.execute(
-            "INSERT INTO tickets (title, description, priority, image) "
-            "VALUES (?, ?, ?, ?)",
-            (title, description, priority, image_name),
+        cur = conn.execute(
+            "INSERT INTO tickets "
+            "(title, description, priority, image, raised_by, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (title, description, priority, image_name, who, now_ist()),
         )
+        ticket_id = cur.lastrowid
+        for d in depts:
+            conn.execute(
+                "INSERT OR IGNORE INTO ticket_depts (ticket_id, dept) "
+                "VALUES (?, ?)",
+                (ticket_id, d),
+            )
         conn.commit()
         conn.close()
         socketio.emit("new_ticket_alert", {"title": title})
         socketio.emit("tickets_changed")
 
-        who = session.get("username", "unknown")
         body = "A new ticket was raised by " + who + ".\n\n"
         body += "Title: " + title + "\n"
         body += "Priority: " + priority + "\n\n"
-        body += "Description:\n" + description + "\n\n"
-        body += "Open the tickets page to view and assign it."
+        body += "Description:\n" + description + "\n"
         notify_admins("New ticket: " + title, body)
 
-        return render_template("ticket_new.html", saved=True)
-    return render_template("ticket_new.html", saved=False)
+        return render_template(
+            "ticket_new.html", saved=True, departments=DEPARTMENTS
+        )
+    return render_template(
+        "ticket_new.html", saved=False, departments=DEPARTMENTS
+    )
 
 
 @app.route("/tickets")
 def tickets():
     if "user_id" not in session:
         return redirect("/login")
-    conn = get_db()
-    if session.get("role") == "Admin":
-        rows = conn.execute(
-            "SELECT t.*, u.username AS assignee FROM tickets t "
-            "LEFT JOIN users u ON t.assigned_to = u.id "
-            "ORDER BY t.id DESC"
-        ).fetchall()
-        staff = conn.execute(
-            "SELECT id, username FROM users WHERE role = 'Staff'"
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT t.*, u.username AS assignee FROM tickets t "
-            "LEFT JOIN users u ON t.assigned_to = u.id "
-            "WHERE t.assigned_to = ? ORDER BY t.id DESC",
-            (session["user_id"],),
-        ).fetchall()
-        staff = []
-    conn.close()
-    return render_template("tickets.html", rows=rows, staff=staff)
+    rows = load_tickets()
+    return render_template(
+        "tickets.html", rows=rows, departments=DEPARTMENTS
+    )
+
+
+@app.route("/tickets/export")
+def export_tickets():
+    if "user_id" not in session:
+        return redirect("/login")
+    rows = load_tickets()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Tickets"
+    headers = [
+        "ID", "Title", "Description", "Priority", "Status",
+        "Raised By", "Assigned To", "Raised Date", "Raised Time",
+        "Closed By", "Closed Date", "Closed Time",
+    ]
+    ws.append(headers)
+    fill = PatternFill("solid", fgColor="8B1E1E")
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = fill
+    for t in rows:
+        r_date, r_time = split_dt(t.get("created_at"))
+        c_date, c_time = split_dt(t.get("closed_at"))
+        ws.append([
+            t["id"], t["title"], t["description"], t["priority"],
+            t["status"], t.get("raised_by") or "",
+            ", ".join(t["depts"]), r_date, r_time,
+            t.get("closed_by") or "", c_date, c_time,
+        ])
+    widths = [6, 28, 40, 10, 12, 16, 30, 14, 12, 16, 14, 12]
+    for i, w in enumerate(widths):
+        col = chr(ord("A") + i)
+        ws.column_dimensions[col].width = w
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    stamp = datetime.now(IST).strftime("%Y%m%d_%H%M")
+    return send_file(
+        out,
+        as_attachment=True,
+        download_name="tickets_" + stamp + ".xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument."
+        "spreadsheetml.sheet",
+    )
 
 
 @app.route("/tickets/<int:ticket_id>/status", methods=["POST"])
 def update_status(ticket_id):
-    if session.get("role") != "Admin":
-        return "Only Admin can change status.", 403
+    if "user_id" not in session:
+        return redirect("/login")
     new_status = request.form["status"]
-    if new_status in ("Open", "In Progress", "Closed"):
-        conn = get_db()
-        conn.execute(
-            "UPDATE tickets SET status = ? WHERE id = ?",
-            (new_status, ticket_id),
-        )
-        conn.commit()
+    conn = get_db()
+    allowed = session.get("role") == "Admin" or is_assigned(conn, ticket_id)
+    if not allowed:
         conn.close()
+        return "Only Admin or assigned department can change status.", 403
+    if new_status in ("Open", "In Progress", "Closed"):
+        if new_status == "Closed":
+            conn.execute(
+                "UPDATE tickets SET status = ?, closed_by = ?, "
+                "closed_at = ? WHERE id = ?",
+                (new_status, session["username"], now_ist(), ticket_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE tickets SET status = ?, closed_by = NULL, "
+                "closed_at = NULL WHERE id = ?",
+                (new_status, ticket_id),
+            )
+        conn.commit()
+    conn.close()
     socketio.emit("tickets_changed")
     return redirect("/tickets")
 
 
 @app.route("/tickets/<int:ticket_id>/assign", methods=["POST"])
 def assign_ticket(ticket_id):
-    if session.get("role") != "Admin":
-        return "Only Admin can assign tickets.", 403
-    user_id = request.form.get("assigned_to")
+    if "user_id" not in session:
+        return redirect("/login")
     conn = get_db()
-    if user_id:
+    if not can_access(conn, ticket_id):
+        conn.close()
+        return "You cannot assign this ticket.", 403
+    depts = clean_depts(request.form.getlist("depts"))
+    conn.execute(
+        "DELETE FROM ticket_depts WHERE ticket_id = ?", (ticket_id,)
+    )
+    for d in depts:
         conn.execute(
-            "UPDATE tickets SET assigned_to = ? WHERE id = ?",
-            (int(user_id), ticket_id),
+            "INSERT OR IGNORE INTO ticket_depts (ticket_id, dept) "
+            "VALUES (?, ?)",
+            (ticket_id, d),
         )
-    else:
-        conn.execute(
-            "UPDATE tickets SET assigned_to = NULL WHERE id = ?",
-            (ticket_id,),
-        )
+    conn.commit()
+    conn.close()
+    socketio.emit("tickets_changed")
+    return redirect("/tickets")
+
+
+@app.route("/tickets/<int:ticket_id>/delete", methods=["POST"])
+def delete_ticket(ticket_id):
+    if session.get("role") != "Admin":
+        return "Only Admin can delete tickets.", 403
+    conn = get_db()
+    row = conn.execute(
+        "SELECT image FROM tickets WHERE id = ?", (ticket_id,)
+    ).fetchone()
+    if row and row["image"]:
+        try:
+            os.remove(os.path.join(UPLOAD_FOLDER, row["image"]))
+        except OSError:
+            pass
+    conn.execute(
+        "DELETE FROM ticket_depts WHERE ticket_id = ?", (ticket_id,)
+    )
+    conn.execute("DELETE FROM tickets WHERE id = ?", (ticket_id,))
     conn.commit()
     conn.close()
     socketio.emit("tickets_changed")
@@ -256,7 +441,8 @@ def login():
         password = request.form["password"]
         conn = get_db()
         user = conn.execute(
-            "SELECT * FROM users WHERE username = ?", (username,)
+            "SELECT * FROM users WHERE lower(username) = lower(?)",
+            (username,),
         ).fetchone()
         conn.close()
         if user and check_password_hash(user["password_hash"], password):
@@ -264,7 +450,7 @@ def login():
             session["username"] = user["username"]
             session["role"] = user["role"]
             return redirect("/tickets")
-        error = "Wrong username or password."
+        error = "Wrong department name or password."
     return render_template("login.html", error=error)
 
 
@@ -281,34 +467,12 @@ def uploaded_file(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
 
 
-@app.route("/register", methods=["GET", "POST"])
-def register():
-    error = None
-    if request.method == "POST":
-        username = request.form["username"].strip()
-        password = request.form["password"]
-        email = request.form["email"].strip()
-        conn = get_db()
-        count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-        role = "Admin" if count == 0 else "Staff"
-        try:
-            conn.execute(
-                "INSERT INTO users (username, password_hash, role, email) "
-                "VALUES (?, ?, ?, ?)",
-                (username, generate_password_hash(password), role, email),
-            )
-            conn.commit()
-            conn.close()
-            return redirect("/login")
-        except sqlite3.IntegrityError:
-            error = "That username is already taken."
-        conn.close()
-    return render_template("register.html", error=error)
-
-
 @socketio.on("send_message")
 def handle_message(data):
     emit("new_message", data, broadcast=True)
+
+from passwords import bp
+app.register_blueprint(bp)
 
 
 if __name__ == "__main__":

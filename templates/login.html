@@ -12,19 +12,18 @@
                     border-radius:50%; object-fit:cover;">
     </div>
 
-    <h1>Login</h1>
+    <h1>Department Login</h1>
 
     {% if error %}
         <p style="color:red;">{{ error }}</p>
     {% endif %}
 
     <form method="POST" action="/login">
-        <p><input type="text" name="username" placeholder="Username" required></p>
+        <p><input type="text" name="username" placeholder="Department name (e.g. IT)" required></p>
         <p><input type="password" name="password" placeholder="Password" required></p>
         <p><button type="submit">Login</button></p>
     </form>
 
-    <p><a href="/register">New user? Register</a></p>
     <p><a href="/">Back to Home</a></p>
 </body>
 </html>
