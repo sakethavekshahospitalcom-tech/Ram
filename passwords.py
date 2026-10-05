@@ -6,6 +6,42 @@ from werkzeug.security import check_password_hash
 
 bp = Blueprint("passwords", __name__)
 
+MOBILE_TAGS = (
+    '<meta name="viewport" '
+    'content="width=device-width, initial-scale=1">'
+    "<style>"
+    "html { -webkit-text-size-adjust: 100%; }"
+    "img { max-width: 100%; }"
+    "@media (max-width: 700px) {"
+    "  body { padding: 15px 8px 40px 8px !important; }"
+    "  h1 { font-size: 24px !important; }"
+    "  p { font-size: 15px !important; }"
+    "  body > form { width: 100% !important;"
+    "    padding: 18px 14px !important; }"
+    "  input, textarea, select { max-width: 100%; }"
+    "  .topbar, .topbar .right, .topright {"
+    "    justify-content: center !important; }"
+    "  .btn-link { padding: 8px 12px !important;"
+    "    font-size: 14px !important; }"
+    "  table { font-size: 13px; }"
+    "  th, td { padding: 8px 10px !important; }"
+    "}"
+    "</style>"
+)
+
+
+@bp.after_app_request
+def add_mobile_support(response):
+    if response.mimetype != "text/html":
+        return response
+    if response.direct_passthrough:
+        return response
+    html = response.get_data(as_text=True)
+    if "<head>" in html and 'name="viewport"' not in html:
+        html = html.replace("<head>", "<head>" + MOBILE_TAGS, 1)
+        response.set_data(html)
+    return response
+
 
 def get_db():
     conn = sqlite3.connect("data.db")
