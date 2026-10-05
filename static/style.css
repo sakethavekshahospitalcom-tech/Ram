@@ -4,22 +4,40 @@
 
 body {
     font-family: "Segoe UI", Arial, sans-serif;
-    background: #f7f7fa;
-    color: #2d3142;
+    background: #ffffff;
+    color: #2b3a45;
     text-align: center;
     margin: 0;
     padding: 30px 15px 60px 15px;
-    border-top: 5px solid #8b1e1e;
+    border-top: 6px solid #0a85bb;
 }
 
 img[alt="Ganesh Youth Force"] {
-    border: 3px solid #d4a017;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
-    background: #ffffff;
+    width: auto !important;
+    height: 150px !important;
+    max-width: 90% !important;
+    border-radius: 0 !important;
+    object-fit: contain !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    filter: none !important;
+    mix-blend-mode: normal !important;
+}
+
+.dept-bar {
+    background: linear-gradient(135deg, #0b6a95, #0a85bb) !important;
+    color: #ffffff !important;
+    border-bottom: 3px solid #66c2ea !important;
+}
+
+.dept-bar b {
+    color: #c8ecfb !important;
+    letter-spacing: 0.5px;
 }
 
 h1 {
-    color: #8b1e1e;
+    color: #0b6a95;
     font-size: 30px;
     letter-spacing: 0.5px;
 }
@@ -30,27 +48,27 @@ h1::after {
     width: 70px;
     height: 3px;
     margin: 10px auto 0 auto;
-    background: #d4a017;
+    background: linear-gradient(90deg, #66c2ea, #0a85bb);
     border-radius: 3px;
 }
 
 h2 {
-    color: #8b1e1e;
+    color: #0b6a95;
 }
 
 p {
-    color: #5c6275;
+    color: #4a4a4a;
     font-size: 17px;
 }
 
 a {
-    color: #8b1e1e;
+    color: #0a85bb;
     text-decoration: none;
     font-weight: 600;
 }
 
 a:hover {
-    color: #d4a017;
+    color: #0b6a95;
     text-decoration: underline;
 }
 
@@ -58,21 +76,21 @@ input, textarea, select {
     padding: 11px;
     font-size: 16px;
     background: #ffffff;
-    color: #2d3142;
-    border: 1px solid #d5d9e2;
+    color: #2b3a45;
+    border: 1px solid #c5d9e4;
     border-radius: 8px;
     outline: none;
 }
 
 input:focus, textarea:focus, select:focus {
-    border-color: #d4a017;
-    box-shadow: 0 0 0 3px rgba(212, 160, 23, 0.2);
+    border-color: #0a85bb;
+    box-shadow: 0 0 0 3px rgba(10, 133, 187, 0.18);
 }
 
 input[type="file"]::file-selector-button {
-    background: #f1ece0;
-    color: #8b1e1e;
-    border: 1px solid #d4a017;
+    background: #eaf6fc;
+    color: #0b6a95;
+    border: 1px solid #66c2ea;
     padding: 6px 12px;
     border-radius: 6px;
     margin-right: 8px;
@@ -83,28 +101,28 @@ button {
     padding: 11px 24px;
     font-size: 16px;
     font-weight: 600;
-    background: #8b1e1e;
+    background: linear-gradient(135deg, #0a85bb, #0b6a95);
     color: #ffffff;
     border: none;
     border-radius: 8px;
     cursor: pointer;
-    transition: background 0.2s, box-shadow 0.2s;
+    transition: box-shadow 0.2s, transform 0.15s;
 }
 
 button:hover {
-    background: #a52a2a;
-    box-shadow: 0 4px 12px rgba(139, 30, 30, 0.3);
+    box-shadow: 0 4px 14px rgba(10, 133, 187, 0.35);
+    transform: translateY(-1px);
 }
 
 body > form {
     max-width: 440px;
     margin: 20px auto;
     padding: 26px 22px;
-    background: #ffffff;
-    border: 1px solid #e6e8ef;
-    border-top: 4px solid #d4a017;
-    border-radius: 12px;
-    box-shadow: 0 8px 24px rgba(30, 30, 60, 0.08);
+    background: #f4fafd;
+    border: 1px solid #d6e8f1;
+    border-top: 4px solid #0a85bb;
+    border-radius: 14px;
+    box-shadow: 0 8px 24px rgba(11, 106, 149, 0.12);
 }
 
 table {
@@ -112,32 +130,32 @@ table {
     border-collapse: separate;
     border-spacing: 0;
     background: #ffffff;
-    border: 1px solid #e6e8ef;
+    border: 1px solid #d6e8f1;
     border-radius: 12px;
     overflow: hidden;
-    box-shadow: 0 8px 24px rgba(30, 30, 60, 0.08);
+    box-shadow: 0 8px 24px rgba(11, 106, 149, 0.12);
 }
 
 table th {
-    background-color: #8b1e1e;
+    background: linear-gradient(135deg, #0b6a95, #0a85bb);
     color: #ffffff;
     padding: 13px 16px;
     font-size: 13px;
     text-transform: uppercase;
     letter-spacing: 0.8px;
     border: none;
-    border-bottom: 3px solid #d4a017;
+    border-bottom: 3px solid #66c2ea;
 }
 
 table td {
     padding: 11px 16px;
-    color: #2d3142;
+    color: #2b3a45;
     border: none;
-    border-bottom: 1px solid #eef0f5;
+    border-bottom: 1px solid #e8f1f6;
 }
 
 table tr:hover td {
-    background: #fdf8ea;
+    background: #f1f9fd;
 }
 
 td form {

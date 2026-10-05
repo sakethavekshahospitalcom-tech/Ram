@@ -9,6 +9,7 @@ from email.message import EmailMessage
 from flask import Flask, render_template, request, redirect
 from flask import session, send_from_directory, send_file
 from flask_socketio import SocketIO, emit
+from markupsafe import escape
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from werkzeug.security import generate_password_hash
@@ -33,6 +34,18 @@ DEPARTMENTS = [
 ]
 
 IST = timezone(timedelta(hours=5, minutes=30))
+
+DEPT_BAR_CSS = (
+    "<style>"
+    ".dept-bar{position:fixed;top:0;left:0;right:0;z-index:1000;"
+    "background:#8b1e1e;color:#ffffff;padding:10px 16px;"
+    "font-size:15px;font-weight:600;text-align:center;"
+    "border-bottom:3px solid #d4a017;"
+    "box-shadow:0 2px 8px rgba(0,0,0,0.25);}"
+    ".dept-bar b{color:#f5c542;}"
+    "body{padding-top:70px !important;}"
+    "</style>"
+)
 
 
 def now_ist():
@@ -102,6 +115,10 @@ def init_db():
     add_column(conn, "ALTER TABLE tickets ADD COLUMN raised_by TEXT")
     add_column(conn, "ALTER TABLE tickets ADD COLUMN closed_by TEXT")
     add_column(conn, "ALTER TABLE tickets ADD COLUMN closed_at TEXT")
+    add_column(conn, "ALTER TABLE tickets ADD COLUMN raised_by_name TEXT")
+    add_column(conn, "ALTER TABLE tickets ADD COLUMN handled_by_name TEXT")
+    add_column(conn, "ALTER TABLE tickets ADD COLUMN handled_by_dept TEXT")
+    add_column(conn, "ALTER TABLE tickets ADD COLUMN closed_by_name TEXT")
     add_column(conn, "ALTER TABLE users ADD COLUMN email TEXT")
     conn.commit()
     conn.close()
@@ -127,6 +144,29 @@ def seed_departments():
 
 init_db()
 seed_departments()
+
+
+@app.after_request
+def add_department_bar(response):
+    if response.mimetype != "text/html":
+        return response
+    if response.direct_passthrough:
+        return response
+    name = session.get("username")
+    if not name:
+        return response
+    html = response.get_data(as_text=True)
+    if "<body>" not in html:
+        return response
+    bar = (
+        DEPT_BAR_CSS
+        + '<div class="dept-bar">Department: <b>'
+        + str(escape(name))
+        + "</b></div>"
+    )
+    html = html.replace("<body>", "<body>" + bar, 1)
+    response.set_data(html)
+    return response
 
 
 def _send_email(to_list, subject, body):
@@ -258,6 +298,9 @@ def new_ticket():
         title = request.form["title"]
         description = request.form["description"]
         priority = request.form["priority"]
+        person = request.form.get("your_name", "").strip()
+        if not person:
+            return "Please enter your name.", 400
         depts = clean_depts(request.form.getlist("depts"))
 
         image_name = None
@@ -273,9 +316,11 @@ def new_ticket():
         conn = get_db()
         cur = conn.execute(
             "INSERT INTO tickets "
-            "(title, description, priority, image, raised_by, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (title, description, priority, image_name, who, now_ist()),
+            "(title, description, priority, image, raised_by, "
+            "raised_by_name, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (title, description, priority, image_name, who,
+             person, now_ist()),
         )
         ticket_id = cur.lastrowid
         for d in depts:
@@ -289,7 +334,8 @@ def new_ticket():
         socketio.emit("new_ticket_alert", {"title": title})
         socketio.emit("tickets_changed")
 
-        body = "A new ticket was raised by " + who + ".\n\n"
+        body = "A new ticket was raised by " + person
+        body += " (" + who + ").\n\n"
         body += "Title: " + title + "\n"
         body += "Priority: " + priority + "\n\n"
         body += "Description:\n" + description + "\n"
@@ -323,8 +369,10 @@ def export_tickets():
     ws.title = "Tickets"
     headers = [
         "ID", "Title", "Description", "Priority", "Status",
-        "Raised By", "Assigned To", "Raised Date", "Raised Time",
-        "Closed By", "Closed Date", "Closed Time",
+        "Raised By (Dept)", "Raised By (Person)", "Assigned To",
+        "Raised Date", "Raised Time",
+        "Last Handled By", "Closed By (Dept)", "Closed By (Person)",
+        "Closed Date", "Closed Time",
     ]
     ws.append(headers)
     fill = PatternFill("solid", fgColor="8B1E1E")
@@ -334,13 +382,20 @@ def export_tickets():
     for t in rows:
         r_date, r_time = split_dt(t.get("created_at"))
         c_date, c_time = split_dt(t.get("closed_at"))
+        handled = ""
+        if t.get("handled_by_name"):
+            handled = t["handled_by_name"]
+            if t.get("handled_by_dept"):
+                handled += " (" + t["handled_by_dept"] + ")"
         ws.append([
             t["id"], t["title"], t["description"], t["priority"],
             t["status"], t.get("raised_by") or "",
+            t.get("raised_by_name") or "",
             ", ".join(t["depts"]), r_date, r_time,
-            t.get("closed_by") or "", c_date, c_time,
+            handled, t.get("closed_by") or "",
+            t.get("closed_by_name") or "", c_date, c_time,
         ])
-    widths = [6, 28, 40, 10, 12, 16, 30, 14, 12, 16, 14, 12]
+    widths = [6, 28, 40, 10, 12, 16, 18, 30, 14, 12, 26, 16, 18, 14, 12]
     for i, w in enumerate(widths):
         col = chr(ord("A") + i)
         ws.column_dimensions[col].width = w
@@ -362,23 +417,30 @@ def update_status(ticket_id):
     if "user_id" not in session:
         return redirect("/login")
     new_status = request.form["status"]
+    person = request.form.get("person_name", "").strip()
+    if not person:
+        return "Please enter your name.", 400
     conn = get_db()
     allowed = session.get("role") == "Admin" or is_assigned(conn, ticket_id)
     if not allowed:
         conn.close()
         return "Only Admin or assigned department can change status.", 403
+    dept = session["username"]
     if new_status in ("Open", "In Progress", "Closed"):
         if new_status == "Closed":
             conn.execute(
-                "UPDATE tickets SET status = ?, closed_by = ?, "
+                "UPDATE tickets SET status = ?, handled_by_name = ?, "
+                "handled_by_dept = ?, closed_by = ?, closed_by_name = ?, "
                 "closed_at = ? WHERE id = ?",
-                (new_status, session["username"], now_ist(), ticket_id),
+                (new_status, person, dept, dept, person,
+                 now_ist(), ticket_id),
             )
         else:
             conn.execute(
-                "UPDATE tickets SET status = ?, closed_by = NULL, "
-                "closed_at = NULL WHERE id = ?",
-                (new_status, ticket_id),
+                "UPDATE tickets SET status = ?, handled_by_name = ?, "
+                "handled_by_dept = ?, closed_by = NULL, "
+                "closed_by_name = NULL, closed_at = NULL WHERE id = ?",
+                (new_status, person, dept, ticket_id),
             )
         conn.commit()
     conn.close()
@@ -470,6 +532,7 @@ def uploaded_file(filename):
 @socketio.on("send_message")
 def handle_message(data):
     emit("new_message", data, broadcast=True)
+
 
 from passwords import bp
 app.register_blueprint(bp)

@@ -3,18 +3,46 @@
 <head>
     <title>My First Flask Page</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .big-btn {
+            display: inline-block;
+            padding: 13px 34px;
+            margin: 8px 0;
+            font-size: 18px;
+            font-weight: 700;
+            color: #ffffff !important;
+            background: linear-gradient(135deg, #0a85bb, #0b6a95);
+            border-radius: 10px;
+            text-decoration: none !important;
+            box-shadow: 0 4px 14px rgba(10, 133, 187, 0.3);
+        }
+        .big-btn:hover {
+            box-shadow: 0 6px 18px rgba(10, 133, 187, 0.45);
+            transform: translateY(-1px);
+        }
+    </style>
 </head>
 <body>
     <div style="text-align:center; margin-bottom:20px;">
         <img src="{{ url_for('static', filename='logo.jpeg') }}"
-             alt="Ganesh Youth Force"
-             style="width:110px; height:110px;
-                    border-radius:50%; object-fit:cover;">
+             alt="Ganesh Youth Force">
     </div>
 
     <h1>Welcome to my Flask app!</h1>
     <p>This page is made using an HTML template.</p>
-    <a href="/about">Go to About page</a>
-    <p><a href="/form">Go to Form page</a></p>
+
+    <p>
+        {% if session.get("user_id") %}
+            <a class="big-btn" href="/tickets">Go to Tickets</a>
+        {% else %}
+            <a class="big-btn" href="/login">Department Login</a>
+        {% endif %}
+    </p>
+
+    <p>
+        <a href="https://avekshahospital.com/" target="_blank" rel="noopener">
+            Go to About page
+        </a>
+    </p>
 </body>
 </html>
